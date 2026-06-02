@@ -38,9 +38,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'DELETE_FILE':
       deleteFile(message.id).then(sendResponse);
       return true;
-    case 'RENAME_FILE':
-      renameFile(message.id, message.newName).then(sendResponse);
-      return true;
     case 'GET_FILE':
       getFile(message.id).then(sendResponse);
       return true;
@@ -85,18 +82,6 @@ async function deleteFile(id) {
   const filtered = files.filter((f) => f.id !== id);
   await chrome.storage.local.set({ files: filtered });
   return { success: true, files: filtered };
-}
-
-async function renameFile(id, newName) {
-  const { files = [] } = await chrome.storage.local.get('files');
-  const file = files.find((f) => f.id === id);
-  if (file) {
-    file.name = newName;
-    file.updatedAt = Date.now();
-    await chrome.storage.local.set({ files });
-    return { success: true, files };
-  }
-  return { success: false, error: 'File not found' };
 }
 
 async function getFile(id) {

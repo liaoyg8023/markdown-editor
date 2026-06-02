@@ -30,7 +30,9 @@
     isResizing: false,
     theme: 'light',
     autoSave: true,
-    editorFontSize: 14
+    editorFontSize: 14,
+    localHandle: null,
+    fsaCompatible: null
   };
 
   // === DOM References ===
@@ -234,6 +236,10 @@
   }
 
   async function openLocalFilePicker() {
+    if (state.fsaCompatible === false) {
+      $('fileInput').click();
+      return;
+    }
     try {
       const [handle] = await window.showOpenFilePicker({
         types: [{
@@ -256,7 +262,6 @@
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        console.warn('showOpenFilePicker failed, fallback to input:', err);
         $('fileInput').click();
       }
     }
@@ -346,8 +351,7 @@
           <div class="file-meta">${formatDate(f.updatedAt)}</div>
         </div>
         <div class="file-actions">
-          <button class="btn-rename" data-id="${f.id}" title="重命名">&#9998;</button>
-          <button class="btn-del" data-id="${f.id}" title="删除">&#10005;</button>
+          <button class="btn-del" data-id="${f.id}" title="关闭">&#10005;</button>
         </div>
       </div>`
       )
@@ -360,6 +364,50 @@
     return div.innerHTML;
   }
 
+  function supportsFileSystemAccess() {
+    return 'showSaveFilePicker' in window;
+  }
+
+  function checkFSACompatibility() {
+    if (!('showSaveFilePicker' in window)) {
+      state.fsaCompatible = false;
+      return;
+    }
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes('edg/')) {
+      state.fsaCompatible = false;
+      return;
+    }
+    state.fsaCompatible = true;
+  }
+
+  function updateFSAHint() {
+    const hint = $('fsaHint');
+    if (state.fsaCompatible === false) {
+      hint.textContent = '⚠ 该浏览器不支持同步保存文件到本地，只支持下载';
+    } else {
+      hint.textContent = '';
+    }
+  }
+
+  async function downloadFile(name, content) {
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    try {
+      await chrome.downloads.download({ url, filename: name, saveAs: true });
+      state.localDirty = false;
+      saveStatus.textContent = '已保存到本地';
+      saveStatus.className = 'saved';
+      showToast('已保存到本地', 'success', 1500);
+    } catch (err) {
+      saveStatus.textContent = '已缓存（下载失败）';
+      saveStatus.className = 'saved';
+      showToast('保存到本地失败，内容已缓存', 'warning');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   async function saveCurrentFile(isManual) {
     if (!state.currentId) return;
     const name = fileName.value.trim() || '未命名.md';
@@ -367,6 +415,53 @@
 
     saveStatus.textContent = '保存中...';
     saveStatus.className = 'saving';
+
+    if (isManual && !state.localHandle) {
+      let fsaFailed = false;
+      if (supportsFileSystemAccess()) {
+        try {
+          const suggestedName = fileName.value;
+          state.localHandle = await window.showSaveFilePicker({
+            types: [{
+              description: 'Markdown Files',
+              accept: { 'text/markdown': ['.md'] }
+            }],
+            suggestedName
+          });
+          await saveFileHandle(state.currentId, state.localHandle);
+        } catch (err) {
+          if (err.name === 'AbortError') {
+            saveStatus.textContent = '已缓存';
+            saveStatus.className = 'saved';
+            return;
+          }
+          fsaFailed = true;
+        }
+      } else {
+        fsaFailed = true;
+      }
+      if (fsaFailed) {
+        saveStatus.textContent = '该浏览器不支持同步保存文件到本地，只支持下载';
+        saveStatus.className = 'saved';
+        const res = await chrome.runtime.sendMessage({
+          type: 'SAVE_FILE',
+          id: state.currentId,
+          content: editor.value,
+          name: fileName.value
+        });
+        if (res.success) {
+          state.files = res.files;
+          state.isDirty = false;
+          renderFileList();
+        }
+        await downloadFile(fileName.value, editor.value);
+        if (state.localDirty === false) {
+          saveStatus.textContent = '已通过下载保存到本地';
+          saveStatus.className = 'saved';
+        }
+        return;
+      }
+    }
 
     try {
       const res = await chrome.runtime.sendMessage({
@@ -390,60 +485,50 @@
   }
 
   async function saveToLocal(isManual) {
-    let handle = await getFileHandle(state.currentId);
-
-    if (handle) {
-      if (isManual) {
-        try {
-          const writable = await handle.createWritable();
-          await writable.write(editor.value);
-          await writable.close();
-          state.localDirty = false;
-          saveStatus.textContent = '已保存到本地';
-          saveStatus.className = 'saved';
-          showToast('已保存到本地', 'success', 1500);
-        } catch (err) {
-          saveStatus.textContent = '已缓存（本地写入失败）';
-          saveStatus.className = 'saved';
-          showToast('本地文件写入失败，内容已保存到内部存储', 'warning');
-        }
-      } else {
-        saveStatus.textContent = state.localDirty ? '已缓存（未保存到本地）' : '已缓存';
-        saveStatus.className = 'saved';
-      }
+    const handle = state.localHandle;
+    if (!handle) {
+      saveStatus.textContent = '已缓存';
+      saveStatus.className = 'saved';
       return;
     }
 
-    if (isManual) {
-      try {
-        handle = await window.showSaveFilePicker({
-          types: [{
-            description: 'Markdown Files',
-            accept: { 'text/markdown': ['.md'] }
-          }],
-          suggestedName: fileName.value
+    if (!isManual) {
+      saveStatus.textContent = state.localDirty ? '已缓存（未保存到本地）' : '已缓存';
+      saveStatus.className = 'saved';
+      return;
+    }
+
+    try {
+      const writable = await handle.createWritable();
+      await writable.write(editor.value);
+      await writable.close();
+      state.localDirty = false;
+      const savedName = handle.name;
+      if (savedName && savedName !== fileName.value) {
+        const res = await chrome.runtime.sendMessage({
+          type: 'SAVE_FILE',
+          id: state.currentId,
+          content: editor.value,
+          name: savedName
         });
-        const writable = await handle.createWritable();
-        await writable.write(editor.value);
-        await writable.close();
-        await saveFileHandle(state.currentId, handle);
-        state.localDirty = false;
-        saveStatus.textContent = '已保存到本地';
-        saveStatus.className = 'saved';
-        showToast('已保存到本地', 'success', 1500);
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          saveStatus.textContent = '已缓存（未保存到本地）';
-          saveStatus.className = 'saved';
-          showToast('已缓存，但未选择本地保存位置', 'warning');
-        } else {
-          saveStatus.textContent = '已缓存';
-          saveStatus.className = 'saved';
+        if (res.success) {
+          state.files = res.files;
+          fileName.value = savedName;
+          renderFileList();
         }
       }
-    } else {
-      saveStatus.textContent = '已缓存';
+      saveStatus.textContent = '已保存到本地';
       saveStatus.className = 'saved';
+      showToast('已保存到本地', 'success', 1500);
+    } catch (err) {
+      // createWritable may fail in some Chromium-based browsers, fall back to download
+      try {
+        await downloadFile(fileName.value, editor.value);
+      } catch {
+        saveStatus.textContent = '已缓存（本地写入失败）';
+        saveStatus.className = 'saved';
+        showToast('本地文件写入失败，内容已保存到内部存储', 'warning');
+      }
     }
   }
 
@@ -460,6 +545,7 @@
         state.currentId = id;
         state.isDirty = false;
         state.localDirty = false;
+        state.localHandle = await getFileHandle(id);
         editor.value = res.file.content || '';
         fileName.value = res.file.name || '未命名.md';
         renderPreview();
@@ -473,41 +559,23 @@
     }
   }
 
-  async function deleteFile(id) {
-    if (!confirm('确定删除此文件？')) return;
+  async function closeFile(id) {
+    if (!confirm('确定关闭此文件？')) return;
     try {
       const res = await chrome.runtime.sendMessage({ type: 'DELETE_FILE', id });
       if (res.success) {
         state.files = res.files;
         if (state.currentId === id) {
           state.currentId = null;
+          state.localHandle = null;
           showEmptyState();
         }
         renderFileList();
         removeFileHandle(id);
-        showToast('文件已删除', 'success');
+        showToast('文件已关闭', 'success');
       }
     } catch (err) {
-      showToast('删除失败', 'error');
-    }
-  }
-
-  async function renameFile(id) {
-    const file = state.files.find((f) => f.id === id);
-    if (!file) return;
-    const newName = prompt('重命名文件：', file.name);
-    if (!newName || newName === file.name) return;
-    const finalName = newName.endsWith('.md') ? newName : newName + '.md';
-    try {
-      const res = await chrome.runtime.sendMessage({ type: 'RENAME_FILE', id, newName: finalName });
-      if (res.success) {
-        state.files = res.files;
-        if (state.currentId === id) fileName.value = finalName;
-        renderFileList();
-        showToast('重命名成功', 'success');
-      }
-    } catch (err) {
-      showToast('重命名失败', 'error');
+      showToast('关闭失败', 'error');
     }
   }
 
@@ -591,6 +659,32 @@
     hr: () => insertAtLine('---\n', ''),
   };
 
+  // === Sync Scroll ===
+  let _syncingScroll = false;
+
+  function syncScroll(source, target) {
+    if (_syncingScroll) return;
+    const srcMax = source.scrollHeight - source.clientHeight;
+    if (srcMax <= 0) return;
+    _syncingScroll = true;
+    const ratio = source.scrollTop / srcMax;
+    const tgtMax = target.scrollHeight - target.clientHeight;
+    if (tgtMax > 0) {
+      target.scrollTop = ratio * tgtMax;
+    }
+    _syncingScroll = false;
+  }
+
+  editor.addEventListener('scroll', () => {
+    if (state.previewMode !== 'split') return;
+    syncScroll(editor, preview);
+  });
+
+  preview.addEventListener('scroll', () => {
+    if (state.previewMode !== 'split') return;
+    syncScroll(preview, editor);
+  });
+
   // === Event Listeners ===
   // Editor
   editor.addEventListener('input', () => {
@@ -612,11 +706,6 @@
       editor.selectionStart = editor.selectionEnd = start + 2;
       triggerUpdate();
     }
-    // Ctrl+S
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      saveCurrentFile(true);
-    }
   });
 
   // Toolbar
@@ -629,20 +718,14 @@
 
   // File list events (delegation)
   fileList.addEventListener('click', (e) => {
-    const item = e.target.closest('.file-item');
     const delBtn = e.target.closest('.btn-del');
-    const renameBtn = e.target.closest('.btn-rename');
 
     if (delBtn) {
       e.stopPropagation();
-      deleteFile(delBtn.dataset.id);
+      closeFile(delBtn.dataset.id);
       return;
     }
-    if (renameBtn) {
-      e.stopPropagation();
-      renameFile(renameBtn.dataset.id);
-      return;
-    }
+    const item = e.target.closest('.file-item');
     if (item) {
       if (state.isDirty) saveCurrentFile(false);
       openFile(item.dataset.id);
@@ -717,7 +800,7 @@
   });
 
   $('btnDeleteFile').addEventListener('click', () => {
-    if (state.currentId) deleteFile(state.currentId);
+    if (state.currentId) closeFile(state.currentId);
   });
 
   // Toggle Preview Mode
@@ -751,13 +834,8 @@
   // File search
   fileSearch.addEventListener('input', () => renderFileList());
 
-  // Filename change
-  fileName.addEventListener('change', () => {
-    if (state.currentId) {
-      state.isDirty = true;
-      if (state.autoSave) autoSave();
-    }
-  });
+  // Make filename read-only (rename removed)
+  fileName.readOnly = true;
 
   // === Resize ===
   const resizeHandle = $('resizeHandle');
@@ -818,6 +896,7 @@
     const fileId = state.currentId || '';
     const url = chrome.runtime.getURL(`popup/popup.html?mode=window&fileId=${fileId}`);
     window.open(url, '_blank', 'width=1200,height=800,menubar=no,toolbar=no,location=no,status=no');
+    window.close();
   }
 
   function getFullscreenIcon(isFullscreen) {
@@ -932,6 +1011,9 @@
 
     // Clean up orphaned handles on startup
     cleanOrphanedHandles();
+
+    checkFSACompatibility();
+    updateFSAHint();
 
     const params = new URLSearchParams(window.location.search);
     const isWindowMode = params.get('mode') === 'window';

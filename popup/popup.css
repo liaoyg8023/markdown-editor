@@ -614,6 +614,7 @@ body:not(.window-mode) .popup-resize-handle { display: block; }
 .statusbar #saveStatus.saving { color: var(--warning); }
 .statusbar #saveStatus.saved { color: var(--success); }
 .statusbar #saveStatus.error { color: var(--danger); }
+.statusbar #fsaHint { color: var(--warning); font-size: 11px; white-space: nowrap; }
 
 /* === Toast === */
 .toast {
