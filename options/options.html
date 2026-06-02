@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<!--
+  Markdown Editor - 简洁强大的 Markdown 编辑与预览工具
+  Copyright (C) 2024 liaoyg8023
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 - Markdown Editor</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header class="page-header">
+      <h1>
+        <span class="logo-icon">&#9997;</span>
+        Markdown Editor 设置
+      </h1>
+    </header>
+
+    <div class="settings">
+      <section class="setting-group">
+        <h2 class="group-title">编辑</h2>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="fontSize">字体大小</label>
+            <p class="setting-desc">编辑器中的文字大小 (px)</p>
+          </div>
+          <div class="setting-control">
+            <input type="range" id="fontSize" min="12" max="24" step="1">
+            <span id="fontSizeLabel" class="range-label">16px</span>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="autoSave">自动保存</label>
+            <p class="setting-desc">编辑时自动保存文件</p>
+          </div>
+          <div class="setting-control">
+            <label class="toggle">
+              <input type="checkbox" id="autoSave" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="setting-group">
+        <h2 class="group-title">外观</h2>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label>主题</label>
+            <p class="setting-desc">选择界面主题风格</p>
+          </div>
+          <div class="setting-control">
+            <div class="theme-selector">
+              <button class="theme-btn active" data-theme="light">
+                <span class="theme-icon">&#9728;</span>
+                <span>浅色</span>
+              </button>
+              <button class="theme-btn" data-theme="dark">
+                <span class="theme-icon">&#9790;</span>
+                <span>深色</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="setting-group">
+        <h2 class="group-title">存储管理</h2>
+        <div class="setting-item">
+          <div class="setting-info">
+            <label>存储用量</label>
+            <p class="setting-desc" id="storageDesc">计算中...</p>
+          </div>
+          <div class="setting-control">
+            <span class="badge" id="storageBadge">-</span>
+          </div>
+        </div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <label>清理孤立缓存</label>
+            <p class="setting-desc">清除不再关联任何文件的无用数据</p>
+          </div>
+          <div class="setting-control">
+            <button id="btnCleanOrphans" class="btn-danger-sm">清理</button>
+          </div>
+        </div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <label>清除所有文件</label>
+            <p class="setting-desc">删除全部已导入的文件和缓存数据</p>
+          </div>
+          <div class="setting-control">
+            <button id="btnClearAll" class="btn-danger-sm">清除全部</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="setting-group">
+        <h2 class="group-title">关于</h2>
+        <div class="setting-item">
+          <div class="setting-info">
+            <label>Markdown Editor</label>
+            <p class="setting-desc">版本 1.0.0 - 简洁强大的 Markdown 编辑工具</p>
+          </div>
+          <div class="setting-control">
+            <span class="badge">v1.0.0</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="page-footer">
+      <p>所有数据存储在本地浏览器中，不会上传到任何服务器。</p>
+    </footer>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
